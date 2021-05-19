@@ -162,7 +162,7 @@ void setup()
   mySerial.begin(9600);
 }
 
-
+#define TIME_ZOME 2
 unsigned long last_millis = 0;
 int last_minute = 0;
 int start_up = 0;
@@ -173,7 +173,7 @@ void loop()
   Serial.print("\n\nNew Output: Time:");
   Serial.println(timeClient.getFormattedTime());
   char text[NUM_DIGITS + 1];
-  snprintf(&text[0], NUM_DIGITS + 1, "%02d%02d", timeClient.getHours(), timeClient.getMinutes());
+  snprintf(&text[0], NUM_DIGITS + 1, "%02d%02d", timeClient.getHours()+TIME_ZOME, timeClient.getMinutes());
   Serial.print("Text on display: ");
   Serial.println(text);
   //TODO stimmt in der ersten minute nicht...
