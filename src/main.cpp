@@ -14,8 +14,13 @@ NTPClient timeClient(ntpUDP);
 SoftwareSerial mySerial(D5, D6);
 
 #define PD_OUT_SIZE 14
+#define NUM_LEDS    16
+#define LED_SHIFT   4  /**< Shift to have 1st LED at 12 o'clock */
 #define NUM_DIGITS 4
 #define TIME_ZOME 2*60*60
+
+#define STATE_IDLE      0
+#define STATE_TOUCHED   1
 
 /**
  * @brief	LED Light Animation.
@@ -75,10 +80,11 @@ typedef struct __attribute__((packed))
   ledEffect_t ledEffect;
   uint8_t displayContent[NUM_DIGITS];
   uint8_t displayBrightness;
-  uint8_t reserved;
+  uint8_t touchState;   /**< #STATE_IDLE, #STATE_TOCHED */
 } pdDirect_t;
 
-pdDirect_t button_strukt;
+pdDirect_t button_strukt = { 0u };
+pdDirect_t pdDate = { 0u };
 
 #if 0
 /**
@@ -119,6 +125,9 @@ void setupStrukt(void)
   button_strukt.ledRGBI.g = 255u;
   button_strukt.ledRGBI.b = 128u;
   button_strukt.displayBrightness = 255u;
+
+  pdDate.displayBrightness = 255u;
+  pdDate.touchState = STATE_TOUCHED;
 }
 
 
@@ -163,9 +172,20 @@ void setup()
   mySerial.begin(9600);
 }
 
+
+static void set_date( const time_t date, char text[] )
+{
+	struct tm *clock;
+
+	clock = localtime( &date );
+	snprintf( &text[0], NUM_DIGITS + 1, "%02d%02d", clock->tm_mday, clock->tm_mon + 1 );
+}
+
+
 unsigned long last_millis = 0;
 int last_minute = 0;
 int start_up = 0;
+uint32_t prevNumActiveLeds = NUM_LEDS + 1;
 void loop()
 {
   // put your main code here, to run repeatedly:
@@ -173,10 +193,7 @@ void loop()
   timeClient.setTimeOffset(TIME_ZOME);
   Serial.print("\n\nNew Output: Time:");
   Serial.println(timeClient.getFormattedTime());
-  char text[NUM_DIGITS + 1];
-  snprintf(&text[0], NUM_DIGITS + 1, "%02d%02d", timeClient.getHours(), timeClient.getMinutes());
-  Serial.print("Text on display: ");
-  Serial.println(text);
+  
   //TODO stimmt in der ersten minute nicht...
   if (last_minute != timeClient.getMinutes())
   {
@@ -185,24 +202,47 @@ void loop()
   last_minute = timeClient.getMinutes();
   Serial.print("Sec in millis: ");
   Serial.println(millis() - last_millis);
-  uint32_t numActiveLeds = (16u * (millis() - last_millis) + 30000u) / 60000u;
+  uint32_t numActiveLeds = (NUM_LEDS * (millis() - last_millis) + 30000u) / 60000u;
 
-  button_strukt.activeLedsMask = (1u << numActiveLeds) - 1u;
-  for (int i = 0; i < NUM_DIGITS; i++)
-  {
-    button_strukt.displayContent[i] = text[i];
+  if (numActiveLeds != prevNumActiveLeds) {
+    uint32_t activeLedsMask = ((1u << numActiveLeds) - 1u) << LED_SHIFT;
+    button_strukt.activeLedsMask = (activeLedsMask >> NUM_LEDS) | (activeLedsMask & 0xFFFFu);
+    Serial.print("LEDs on: ");
+    Serial.println(numActiveLeds);
+    Serial.print("LED Mask: ");
+    Serial.println(button_strukt.activeLedsMask, BIN);
+
+    char text[NUM_DIGITS + 1];
+    snprintf(&text[0], NUM_DIGITS + 1, "%02d%02d", timeClient.getHours(), timeClient.getMinutes());
+    Serial.print("Text on display: ");
+    Serial.println(text);
+
+    char textDate[NUM_DIGITS + 1];
+    set_date( timeClient.getEpochTime(), textDate);
+
+    for (int i = 0; i < NUM_DIGITS; i++)
+    {
+      button_strukt.displayContent[i] = text[i];
+      pdDate.displayContent[i] = textDate[i];
+    }
+
+
+    Serial.print("button_strukt: ");
+    uint8_t *pt = (uint8_t *)&button_strukt;
+    for (int i = 0; i < PD_OUT_SIZE; i++)
+    {
+      mySerial.write(pt[i]);
+      Serial.print(pt[i], DEC);
+    }
+
+    delay(100);
+    pt = (uint8_t *)&pdDate;
+    for (int i = 0; i < PD_OUT_SIZE; i++)
+    {
+      mySerial.write(pt[i]);
+    }
+
+
+    prevNumActiveLeds = numActiveLeds;
   }
-  //button_strukt.activeLedsMask=ledMask;
-  Serial.print("LEDs on: ");
-  Serial.println(numActiveLeds);
-  Serial.print("LED Mask: ");
-  Serial.println(button_strukt.activeLedsMask, BIN);
-  Serial.print("button_strukt: ");
-  uint8_t *pt = (uint8_t *)&button_strukt;
-  for (int i = 0; i < PD_OUT_SIZE; i++)
-  {
-    mySerial.write(pt[i]);
-    Serial.print(pt[i], DEC);
-  }
-  delay(100);
 }
